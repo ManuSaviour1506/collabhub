@@ -62,5 +62,27 @@ CollabHub solves this by creating a **skills marketplace**:
 
  python quiz_engine.py React
 
+ Step 3: Test the Search Demo
+
+Now you can record a perfect demo without typing anything manually:
+
+Restart Server: npm start
+
+Login: Use guru@test.com (Sarah React).
+
+Go to Search: Type "Python".
+
+Result 1: You will see "Mike Python" (Mentor).
+
+Result 2: You will see "AI Stock Predictor" (Project).
+
+Go to Leaderboard:
+
+You will see "Sarah React" at the top (Level 12) and "Mike" below her.
+
+Go to Nearby:
+
+Click "Share Location". If you mock your location to NYC, you might see nearby peers (or just see the map working).
+
  
 
