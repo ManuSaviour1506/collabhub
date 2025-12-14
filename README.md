@@ -56,4 +56,11 @@ CollabHub solves this by creating a **skills marketplace**:
 | **Maps** | MongoDB Geospatial Queries (Proximity Search) |
 
 ---
+ node seedQuestions.js
+ 
+ node seedFullDatabase.js
+
+ python quiz_engine.py React
+
+ 
 
