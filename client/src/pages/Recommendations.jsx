@@ -1,123 +1,257 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { SparklesIcon } from '@heroicons/react/24/solid';
 
 const Recommendations = () => {
-  const [matches, setMatches] = useState([]);
+  // Data State
+  const [recommendations, setRecommendations] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+
+  // AI Search State
+  const [query, setQuery] = useState('');
+  const [matches, setMatches] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+
   const navigate = useNavigate();
 
+  // 1. Fetch Initial Data (Algo Recommendations + Community)
   useEffect(() => {
-    const fetchRecs = async () => {
+    const fetchData = async () => {
       try {
         const token = JSON.parse(localStorage.getItem('user')).token;
-        const { data } = await api.get('/recommendations', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setMatches(data);
+        const headers = { Authorization: `Bearer ${token}` };
+
+        // Fetch Algorithm Matches
+        const recRes = await api.get('/recommendations', { headers });
+        setRecommendations(recRes.data);
+
+        // Fetch All Users (Explore)
+        const allRes = await api.get('/users/all', { headers });
+        setAllUsers(allRes.data);
+
         setLoading(false);
       } catch (err) {
-        console.error("Failed to fetch recommendations", err);
-        setError('Could not load recommendations. Please try again later.');
+        console.error(err);
         setLoading(false);
+        toast.error("Failed to load community data.");
       }
     };
-    fetchRecs();
+    fetchData();
   }, []);
 
-  // Logic to start a chat when "Connect" is clicked
+  // 2. Handle "Connect/Message" Click
   const handleConnect = async (userId) => {
     try {
       const token = JSON.parse(localStorage.getItem('user')).token;
       
-      // Call the API to create or retrieve a chat with this user
-      await api.post('/chat', 
-        { userId }, 
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      // Create/Fetch Chat Room
+      await api.post('/chat', { userId }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       
-      // Redirect to the chat page
+      // Redirect
       navigate('/chat');
     } catch (error) {
-      alert("Failed to connect with user.");
+      toast.error("Could not start chat.");
+      console.error(error);
     }
   };
 
-  if (loading) return <div className="p-8 text-center text-gray-500">Finding your best learning partners...</div>;
-  if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
+  // 3. Handle AI Semantic Search
+  const handleAIMatch = async (e) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const token = JSON.parse(localStorage.getItem('user')).token;
+      const { data } = await api.post('/ai/match', 
+        { query },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setMatches(data);
+      if (data.length > 0) {
+        toast.success(`Found ${data.length} AI matches!`);
+      } else {
+        toast('No strong matches found. Try a different description.', { icon: '🤔' });
+      }
+    } catch (error) {
+      toast.error("AI Match failed. Is the Python engine running?");
+      console.error(error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-indigo-600 font-bold">Finding community members...</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">Recommended Mentors & Peers</h1>
-        <p className="text-gray-600 mb-8">Based on the skills you want to learn, here are the best people to connect with.</p>
         
-        {matches.length === 0 ? (
-          <div className="bg-white p-8 rounded-lg shadow text-center">
-            <h3 className="text-xl font-medium text-gray-700">No matches found yet.</h3>
-            <p className="text-gray-500 mt-2">Try adding more "Skills Wanted" in your profile!</p>
-            <button 
-              onClick={() => navigate('/profile')}
-              className="mt-4 px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Update Profile
-            </button>
+        {/* --- SECTION 1: AI MATCHMAKER --- */}
+        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-8 mb-12 text-white shadow-xl relative overflow-hidden">
+          <div className="relative z-10">
+            <h1 className="text-3xl font-bold mb-2 flex items-center gap-2">
+              <SparklesIcon className="w-8 h-8 text-yellow-300" />
+              Find Your Perfect Collaborator
+            </h1>
+            <p className="text-indigo-100 mb-6 max-w-2xl">
+              Don't just search for keywords. Describe your project (e.g., "I need to build a drone with Python") and our AI will understand the context to find experts.
+            </p>
+
+            <form onSubmit={handleAIMatch} className="flex gap-4 max-w-3xl">
+              <input 
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Describe what you are looking for..."
+                className="flex-1 p-4 rounded-xl text-gray-800 focus:outline-none focus:ring-4 focus:ring-purple-300 shadow-lg"
+              />
+              <button 
+                type="submit" 
+                disabled={isSearching}
+                className="bg-white text-indigo-600 font-bold px-8 py-4 rounded-xl hover:bg-gray-100 transition shadow-lg flex items-center gap-2"
+              >
+                {isSearching ? 'Thinking...' : 'AI Match'}
+              </button>
+            </form>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {matches.map((match) => (
-              <div key={match._id} className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200 p-6 flex flex-col justify-between">
-                
-                <div>
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900">{match.fullName}</h3>
-                      <p className="text-sm text-gray-500">@{match.username}</p>
-                    </div>
-                    <span className="bg-green-100 text-green-800 text-xs font-bold px-3 py-1 rounded-full">
-                      {match.matchScore}% Match
-                    </span>
-                  </div>
+          
+          {/* Decorative background circle */}
+          <div className="absolute -right-20 -top-20 w-80 h-80 bg-white opacity-10 rounded-full blur-3xl"></div>
+        </div>
 
-                  {match.bio && (
-                    <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                      {match.bio}
-                    </p>
-                  )}
-                  
-                  <div className="mb-4">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                      Can Teach You:
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {match.matchingSkills && match.matchingSkills.length > 0 ? (
-                        match.matchingSkills.map((skill, index) => (
-                          <span key={index} className="bg-indigo-50 text-indigo-700 text-xs font-medium px-2.5 py-0.5 rounded border border-indigo-200">
-                            {skill}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-gray-400 text-sm italic">General Match</span>
-                      )}
-                    </div>
-                  </div>
+        {/* --- SECTION 2: AI MATCH RESULTS --- */}
+        {matches.length > 0 && (
+          <div className="mb-12">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+              <span>🎯</span> Top Matches
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {matches.map((user) => (
+                <div key={user._id} className="bg-white p-6 rounded-xl shadow-md border border-indigo-100 relative overflow-hidden hover:shadow-lg transition">
+                   {/* Match Score Badge */}
+                   <div className="absolute top-0 right-0 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-bl-xl shadow-sm">
+                     {user.matchScore}% Match
+                   </div>
+
+                   {/* User Card Content */}
+                   <div className="flex items-center gap-4 mb-4">
+                     <img 
+                        src={user.avatar || "https://via.placeholder.com/150"} 
+                        className="w-12 h-12 rounded-full object-cover bg-gray-200" 
+                        alt={user.fullName}
+                     />
+                     <div>
+                       <h3 className="font-bold text-gray-800 leading-tight">{user.fullName}</h3>
+                       <p className="text-xs text-gray-500">@{user.username}</p>
+                     </div>
+                   </div>
+                   <p className="text-sm text-gray-600 mb-4 line-clamp-2 h-10">{user.bio || "No bio available."}</p>
+                   
+                   {/* Connect Button */}
+                   <button 
+                     onClick={() => handleConnect(user._id)} 
+                     className="w-full bg-indigo-50 text-indigo-600 py-2 rounded-lg font-semibold hover:bg-indigo-100 transition"
+                   >
+                     Connect
+                   </button>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-                <button 
-                  onClick={() => handleConnect(match._id)}
-                  className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
-                    <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
-                  </svg>
-                  Message & Connect
-                </button>
+        {/* --- SECTION 3: ALGORITHM RECOMMENDATIONS --- */}
+        <div className="mb-12">
+          <div className="flex items-center gap-2 mb-6">
+            <h2 className="text-2xl font-bold text-indigo-800">⚡ Smart Matches</h2>
+            <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide">Based on Skills</span>
+          </div>
+          
+          {recommendations.length === 0 ? (
+             <p className="text-gray-500 bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+               No direct skill matches found yet. Update your profile skills to get better suggestions!
+             </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {recommendations.map((user) => (
+                <div key={user._id} className="bg-white p-6 rounded-xl shadow-md border-l-4 border-indigo-500 flex flex-col justify-between hover:shadow-lg transition">
+                   <div>
+                     <div className="flex items-center gap-4 mb-3">
+                       <div className="w-12 h-12 rounded-full bg-gray-200 overflow-hidden">
+                         {user.avatar ? <img src={user.avatar} className="w-full h-full object-cover" alt={user.fullName}/> : <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">{user.fullName[0]}</div>}
+                       </div>
+                       <div>
+                         <h2 className="text-lg font-bold text-gray-800">{user.fullName}</h2>
+                         <p className="text-xs text-gray-500">@{user.username}</p>
+                       </div>
+                     </div>
+                     <p className="text-gray-600 text-sm mb-4 line-clamp-2 min-h-[40px]">{user.bio || "No bio yet."}</p>
+                     <div className="flex flex-wrap gap-2 mb-4">
+                       {user.skillsKnown.slice(0, 4).map((skill, i) => (
+                         <span key={i} className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">{skill}</span>
+                       ))}
+                     </div>
+                   </div>
+                   
+                   <button 
+                     onClick={() => handleConnect(user._id)}
+                     className="block w-full text-center bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 transition font-medium"
+                   >
+                     Message
+                   </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* --- SECTION 4: EXPLORE COMMUNITY (ALL USERS) --- */}
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-6 border-b pb-2">🌍 Explore Community</h2>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {allUsers.map((user) => (
+              <div key={user._id} className="bg-white p-5 rounded-lg shadow hover:shadow-lg transition duration-300 border border-gray-100 flex flex-col items-center text-center">
+                  
+                  {/* Avatar */}
+                  <div className="w-20 h-20 rounded-full bg-gray-100 mb-3 overflow-hidden border-2 border-white shadow-sm">
+                     {user.avatar ? (
+                       <img src={user.avatar} className="w-full h-full object-cover" alt={user.fullName} />
+                     ) : (
+                       <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-gray-400">{user.fullName[0]}</div>
+                     )}
+                  </div>
+                  
+                  {/* Details */}
+                  <h3 className="font-bold text-gray-800 text-lg leading-tight mb-1">{user.fullName}</h3>
+                  <p className="text-xs text-indigo-600 font-semibold mb-3">Lvl {user.level} • {user.xp} XP</p>
+                  
+                  {/* Skills Preview */}
+                  <div className="flex flex-wrap justify-center gap-1 mb-4 h-12 overflow-hidden content-start">
+                    {user.skillsKnown.slice(0, 3).map((skill, i) => (
+                      <span key={i} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px]">{skill}</span>
+                    ))}
+                    {user.skillsKnown.length > 3 && <span className="text-[10px] text-gray-400 self-center">+{user.skillsKnown.length - 3}</span>}
+                  </div>
+
+                  {/* Message Button */}
+                  <button 
+                    onClick={() => handleConnect(user._id)}
+                    className="w-full py-2 border border-indigo-600 text-indigo-600 rounded-lg hover:bg-indigo-50 transition text-sm font-bold flex items-center justify-center gap-2"
+                  >
+                    <span>💬</span> Message
+                  </button>
               </div>
             ))}
           </div>
-        )}
+        </div>
+
       </div>
     </div>
   );

@@ -1,70 +1,133 @@
-import { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { useEffect, useState } from 'react';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+} from 'recharts';
 import api from '../../services/api';
 
 const Analytics = () => {
-  const [stats, setStats] = useState(null);
+  const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchStats = async () => {
+    const fetchAnalytics = async () => {
       try {
         const token = JSON.parse(localStorage.getItem('user')).token;
         const { data } = await api.get('/analytics', {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setStats(data);
-        setLoading(false);
+        setData(data);
       } catch (error) {
-        console.error(error);
+        console.error("Failed to fetch analytics", error);
+      } finally {
         setLoading(false);
       }
     };
-    fetchStats();
+    fetchAnalytics();
   }, []);
 
-  if (loading) return <div className="p-4 text-center text-gray-500">Loading analytics...</div>;
-  if (!stats) return null;
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-xl shadow-md h-64 flex items-center justify-center text-gray-400">
+          Loading Charts...
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-md h-64 flex items-center justify-center text-gray-400">
+          Loading Charts...
+        </div>
+      </div>
+    );
+  }
+
+  // If no data (e.g., new user), show empty state logic or just render empty charts
+  const hasData = data.length > 0 && data.some(d => d.xp > 0 || d.sessions > 0);
 
   return (
-    <div className="w-full max-w-4xl mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-      
-      {/* 1. Level & XP Card */}
-      <div className="bg-white p-6 rounded-xl shadow-md border border-indigo-50">
-        <h3 className="text-lg font-bold text-gray-700 mb-2">Level Progress</h3>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-3xl font-bold text-indigo-600">Lvl {stats.level}</span>
-          <span className="text-sm text-gray-500">{stats.xp} Total XP</span>
-        </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      {/* Chart 1: XP Progress */}
+      <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+        <h3 className="text-lg font-bold text-gray-700 mb-4">XP Growth (Last 7 Days)</h3>
         
-        {/* Progress Bar */}
-        <div className="w-full bg-gray-200 rounded-full h-4 mb-4">
-          <div 
-            className="bg-indigo-600 h-4 rounded-full transition-all duration-1000" 
-            style={{ width: `${stats.xpProgress}%` }}
-          ></div>
+        <div className="h-64 w-full"> 
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data}>
+              <defs>
+                <linearGradient id="colorXp" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <XAxis 
+                dataKey="name" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{fill: '#6b7280', fontSize: 12}} 
+                dy={10}
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{fill: '#6b7280', fontSize: 12}} 
+              />
+              <Tooltip 
+                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+              />
+              <Area 
+                type="monotone" 
+                dataKey="xp" 
+                stroke="#4f46e5" 
+                fillOpacity={1} 
+                fill="url(#colorXp)" 
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
-        <p className="text-xs text-gray-500 text-center">
-          {Math.round(100 - stats.xpProgress)} XP needed for Level {stats.level + 1}
-        </p>
       </div>
 
-      {/* 2. Wallet Activity Chart */}
-      <div className="bg-white p-6 rounded-xl shadow-md border border-indigo-50">
-        <h3 className="text-lg font-bold text-gray-700 mb-4">Weekly Wallet Activity</h3>
-        <div className="h-48 w-full">
+      {/* Chart 2: Activity/Sessions */}
+      <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+        <h3 className="text-lg font-bold text-gray-700 mb-4">Weekly Sessions</h3>
+        
+        <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats.activityData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="name" tick={{fontSize: 12}} />
-              <Tooltip />
-              <Bar dataKey="earned" fill="#10B981" name="Earned" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="spent" fill="#EF4444" name="Spent" radius={[4, 4, 0, 0]} />
+            <BarChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <XAxis 
+                dataKey="name" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{fill: '#6b7280', fontSize: 12}} 
+                dy={10}
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{fill: '#6b7280', fontSize: 12}} 
+                allowDecimals={false}
+              />
+              <Tooltip 
+                cursor={{fill: '#f3f4f6'}}
+                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+              />
+              <Bar 
+                dataKey="sessions" 
+                fill="#10b981" 
+                radius={[4, 4, 0, 0]} 
+                barSize={30} 
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
-      
     </div>
   );
 };

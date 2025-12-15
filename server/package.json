@@ -20,6 +20,8 @@
     "imagekit": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.1",
+    "multer": "^2.0.2",
+    "pdf-parse": "^2.4.5",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {

@@ -1,54 +1,74 @@
+const Session = require('../models/Session');
 const User = require('../models/User');
-const Wallet = require('../models/Wallet');
-const Transaction = require('../models/Transaction');
+const mongoose = require('mongoose');
 
-exports.getDashboardStats = async (req, res) => {
+// @desc    Get User Analytics (Last 7 Days)
+// @route   GET /api/analytics
+exports.getUserAnalytics = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
-    const wallet = await Wallet.findOne({ user: req.user.id });
-
-    // Calculate XP Progress (Level 1 = 0-100xp, Level 2 = 101-200xp)
-    const currentLevelBase = (user.level - 1) * 100;
-    const xpProgress = ((user.xp - currentLevelBase) / 100) * 100;
-
-    // Get Weekly Activity
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const transactions = await Transaction.find({
-      wallet: wallet._id,
-      createdAt: { $gte: sevenDaysAgo }
-    });
-
-    // Format for Chart
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const activityMap = {};
+    const userId = new mongoose.Types.ObjectId(req.user.id);
     
-    // Initialize empty days
+    // Calculate date 7 days ago
+    const today = new Date();
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    // 1. Aggregate Sessions per Day (Last 7 Days)
+    const sessions = await Session.aggregate([
+      {
+        $match: {
+          $or: [{ sender: userId }, { receiver: userId }], // User is sender OR receiver
+          startTime: { $gte: sevenDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$startTime" } },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // 2. Format Data for the Chart (Fill in missing days with 0)
+    const analyticsData = [];
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
+      const dateString = d.toISOString().split('T')[0];
       const dayName = days[d.getDay()];
-      activityMap[dayName] = { name: dayName, earned: 0, spent: 0 };
+
+      const sessionFound = sessions.find(s => s._id === dateString);
+      const sessionCount = sessionFound ? sessionFound.count : 0;
+
+      analyticsData.push({
+        name: dayName,
+        date: dateString,
+        sessions: sessionCount,
+        xp: 0 // Placeholder, we calculate this next
+      });
     }
 
-    transactions.forEach(tx => {
-      const dayName = days[new Date(tx.createdAt).getDay()];
-      if (activityMap[dayName]) {
-        if (tx.type === 'CREDIT') activityMap[dayName].earned += tx.amount;
-        if (tx.type === 'DEBIT') activityMap[dayName].spent += tx.amount;
-      }
-    });
+    // 3. Project XP Growth Backward
+    // Since we store current XP, we can simulate the history graph
+    // Assumption: 1 Session = ~50 XP gained
+    const currentUser = await User.findById(userId);
+    let currentTotalXP = currentUser.xp || 0;
 
-    res.json({
-      xp: user.xp,
-      level: user.level,
-      xpProgress, 
-      walletBalance: wallet.balance,
-      activityData: Object.values(activityMap)
-    });
+    // Loop backwards to calculate historical XP snapshot
+    for (let i = analyticsData.length - 1; i >= 0; i--) {
+        analyticsData[i].xp = currentTotalXP;
+        // Estimate previous day's XP by subtracting today's gain
+        const dailyGain = (analyticsData[i].sessions * 50); 
+        currentTotalXP = Math.max(0, currentTotalXP - dailyGain);
+    }
+
+    res.json(analyticsData);
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Analytics Error:", error);
+    res.status(500).json({ message: "Failed to fetch analytics" });
   }
 };

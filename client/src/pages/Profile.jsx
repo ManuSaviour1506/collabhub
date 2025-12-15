@@ -1,52 +1,68 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
 import api from '../services/api';
+import QuizModal from '../components/common/QuizModal';
+import { toast } from 'react-hot-toast';
+import { 
+  PencilSquareIcon, 
+  CheckCircleIcon, 
+  XMarkIcon, 
+  ArrowUpTrayIcon,
+  BriefcaseIcon,
+  AcademicCapIcon
+} from '@heroicons/react/24/solid';
 
 const Profile = () => {
-  const { user } = useContext(AuthContext);
+  const { user, login } = useContext(AuthContext); // login used to update local storage if needed
   
-  // Profile Form State
+  // UI State
+  const [loading, setLoading] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  
+  // Resume Parsing State
+  const [isParsing, setIsParsing] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // Profile Data State
   const [formData, setFormData] = useState({
     fullName: '', 
     email: '', 
     bio: '', 
     skillsKnown: '', 
     skillsWanted: '',
-    xp: 0, 
-    avatar: '' // Store avatar URL
+    xp: 0,
+    level: 1,
+    credits: 0,
+    avatar: '' 
   });
 
-  // Image Upload State
+  // Avatar State
   const [avatarFile, setAvatarFile] = useState(null);
+  const [preview, setPreview] = useState(null);
 
-  // Project Form State
+  // Project State
   const [projects, setProjects] = useState([]);
   const [newProject, setNewProject] = useState({ title: '', description: '', link: '', tags: '' });
   const [showProjectForm, setShowProjectForm] = useState(false);
   
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState({ type: '', content: '' });
+  // Quiz State
+  const [quizSkill, setQuizSkill] = useState(null);
 
-  // Helper: Convert File to Base64
-  const convertToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const fileReader = new FileReader();
-      fileReader.readAsDataURL(file);
-      fileReader.onload = () => resolve(fileReader.result);
-      fileReader.onerror = (error) => reject(error);
-    });
-  };
-
-  // 1. Fetch Profile AND Projects Data
+  // --- 1. FETCH DATA (Profile + Projects) ---
   useEffect(() => {
     const fetchData = async () => {
       try {
         const token = JSON.parse(localStorage.getItem('user')).token;
         const headers = { Authorization: `Bearer ${token}` };
 
-        // Fetch User Info
-        const userRes = await api.get('/users/profile', { headers });
+        // Parallel Fetch
+        const [userRes, projectRes] = await Promise.all([
+          api.get('/users/profile', { headers }),
+          api.get('/projects/my', { headers })
+        ]);
+
+        // Set Profile Data
         setFormData({
           fullName: userRes.data.fullName,
           email: userRes.data.email,
@@ -54,34 +70,87 @@ const Profile = () => {
           skillsKnown: userRes.data.skillsKnown ? userRes.data.skillsKnown.join(', ') : '',
           skillsWanted: userRes.data.skillsWanted ? userRes.data.skillsWanted.join(', ') : '',
           xp: userRes.data.xp || 0,
+          level: userRes.data.level || 1,
+          credits: userRes.data.credits || 0,
           avatar: userRes.data.avatar || ''
         });
 
-        // Fetch My Projects
-        const projectRes = await api.get('/projects/my', { headers });
+        // Set Projects Data
         setProjects(projectRes.data);
-
         setLoading(false);
+
       } catch (error) {
         console.error("Error fetching data", error);
+        toast.error("Failed to load profile data.");
         setLoading(false);
       }
     };
 
-    if (user) fetchData();
-  }, [user]);
+    fetchData();
+  }, []);
 
-  // 2. Handle Profile Update (including Image)
+  // --- 2. RESUME PARSER (AI) ---
+  const handleResumeUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      return toast.error("Please upload a PDF file.");
+    }
+
+    setIsParsing(true);
+    const uploadData = new FormData();
+    uploadData.append('resume', file);
+
+    try {
+      const token = JSON.parse(localStorage.getItem('user')).token;
+      
+      toast.loading("AI is analyzing your resume...", { id: 'resumeLoad' });
+
+      // Call the Node.js -> Python Resume Parser
+      const { data } = await api.post('/users/parse-resume', uploadData, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      // Auto-fill form
+      setFormData(prev => ({
+        ...prev,
+        fullName: data.fullName !== "Unknown User" ? data.fullName : prev.fullName,
+        bio: data.bio || prev.bio,
+        skillsKnown: data.skillsKnown.length > 0 ? data.skillsKnown.join(', ') : prev.skillsKnown
+      }));
+
+      toast.success("Profile auto-filled from Resume!", { id: 'resumeLoad' });
+      setIsEditing(true); // Switch to edit mode so user can review
+      
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to parse resume.", { id: 'resumeLoad' });
+    } finally {
+      setIsParsing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // --- 3. SAVE PROFILE ---
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
-    setMessage({ type: '', content: '' });
+    const toastId = toast.loading('Saving changes...');
     
     try {
       const token = JSON.parse(localStorage.getItem('user')).token;
       
+      // Convert Avatar to Base64 if changed
       let avatarBase64 = null;
       if (avatarFile) {
-        avatarBase64 = await convertToBase64(avatarFile);
+        avatarBase64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(avatarFile);
+        });
       }
 
       const updateData = {
@@ -89,31 +158,34 @@ const Profile = () => {
         bio: formData.bio,
         skillsKnown: formData.skillsKnown.split(',').map(s => s.trim()).filter(s => s),
         skillsWanted: formData.skillsWanted.split(',').map(s => s.trim()).filter(s => s),
-        avatarBase64: avatarBase64 // Send image data if exists
+        avatarBase64: avatarBase64 
       };
 
       const { data } = await api.put('/users/profile', updateData, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      // Update Local Storage & State
+      // Update LocalStorage to keep Header/AuthContext in sync
       const currentUser = JSON.parse(localStorage.getItem('user'));
       localStorage.setItem('user', JSON.stringify({ ...currentUser, ...data }));
       
-      // Update local state with new avatar URL if returned
       setFormData(prev => ({ ...prev, avatar: data.avatar }));
-      setAvatarFile(null); // Reset file input
+      setAvatarFile(null);
+      setIsEditing(false);
 
-      setMessage({ type: 'success', content: 'Profile updated successfully!' });
+      toast.success('Profile updated successfully!', { id: toastId });
+
     } catch (error) {
       console.error(error);
-      setMessage({ type: 'error', content: 'Update failed. Check file size (<2MB) or connection.' });
+      toast.error('Update failed. Check file size (<2MB).', { id: toastId });
     }
   };
 
-  // 3. Handle Add New Project
+  // --- 4. ADD PROJECT ---
   const handleAddProject = async (e) => {
     e.preventDefault();
+    const toastId = toast.loading('Adding project...');
+
     try {
       const token = JSON.parse(localStorage.getItem('user')).token;
       
@@ -129,167 +201,243 @@ const Profile = () => {
       setProjects([...projects, data]); 
       setNewProject({ title: '', description: '', link: '', tags: '' });
       setShowProjectForm(false);
-      setMessage({ type: 'success', content: 'Project added to portfolio! (+100 XP)' });
       
+      // Update XP locally (Visual only, backend handles actual logic)
       setFormData(prev => ({ ...prev, xp: prev.xp + 100 }));
 
+      toast.success('Project added! (+100 XP)', { id: toastId, icon: '🚀' });
+
     } catch (error) {
-      setMessage({ type: 'error', content: 'Failed to add project.' });
+      toast.error('Failed to add project.', { id: toastId });
     }
   };
 
-  if (loading) return <div className="p-8 text-center">Loading profile...</div>;
+  // --- 5. HANDLE AVATAR PREVIEW ---
+  const handleAvatarChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setAvatarFile(file);
+      setPreview(URL.createObjectURL(file));
+    }
+  };
+
+  if (loading) return <div className="p-8 text-center font-bold text-indigo-600">Loading profile...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto space-y-8">
-        
-        {/* Notification Banner */}
-        {message.content && (
-          <div className={`p-4 rounded ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-            {message.content}
-          </div>
-        )}
+    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+      <div className="max-w-4xl mx-auto space-y-6">
 
-        {/* --- SECTION 1: PERSONAL DETAILS --- */}
-        <div className="bg-white rounded-lg shadow-md p-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-6">Edit Profile</h1>
-          
-          <form onSubmit={handleProfileUpdate} className="space-y-6">
-            
-            {/* Avatar Upload Section */}
-            <div className="flex flex-col items-center mb-6">
-              <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-indigo-100 mb-4 shadow-sm relative">
-                {avatarFile ? (
-                  // Show preview of selected file
-                  <img src={URL.createObjectURL(avatarFile)} alt="Preview" className="w-full h-full object-cover" />
-                ) : formData.avatar ? (
-                  // Show current avatar from DB
-                  <img src={formData.avatar} alt="Profile" className="w-full h-full object-cover" />
-                ) : (
-                  // Show Placeholder
-                  <div className="w-full h-full bg-indigo-500 flex items-center justify-center text-white text-4xl font-bold">
-                    {formData.fullName ? formData.fullName.charAt(0).toUpperCase() : 'U'}
-                  </div>
+
+        
+        {/* ================= HEADER & RESUME PARSER ================= */}
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 h-48 relative">
+             {/* Resume Upload Button (Top Right) */}
+             <div className="absolute top-4 right-4 z-10">
+               <input 
+                 type="file" 
+                 accept="application/pdf" 
+                 className="hidden" 
+                 ref={fileInputRef} 
+                 onChange={handleResumeUpload}
+               />
+               <button 
+                 onClick={() => fileInputRef.current.click()}
+                 disabled={isParsing}
+                 className="bg-white/20 backdrop-blur-md border border-white/50 text-white px-4 py-2 rounded-lg font-bold hover:bg-white/30 transition flex items-center gap-2 shadow-lg"
+               >
+                 {isParsing ? (
+                   <span className="animate-pulse">Parsing...</span>
+                 ) : (
+                   <>
+                     <ArrowUpTrayIcon className="w-5 h-5" />
+                     <span>Auto-Fill from Resume</span>
+                   </>
+                 )}
+               </button>
+            </div>
+          </div>
+
+          <div className="px-8 pb-8">
+            {/* Avatar & Edit Actions */}
+            <div className="relative -mt-20 mb-6 flex justify-between items-end">
+              <div className="relative group">
+                <div className="w-40 h-40 rounded-full border-4 border-white shadow-lg overflow-hidden bg-gray-200">
+                  {preview ? (
+                    <img src={preview} className="w-full h-full object-cover" />
+                  ) : formData.avatar ? (
+                    <img src={formData.avatar} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-4xl text-gray-400 font-bold">
+                      {formData.fullName ? formData.fullName[0] : 'U'}
+                    </div>
+                  )}
+                </div>
+                {isEditing && (
+                  <label className="absolute bottom-2 right-2 bg-indigo-600 text-white p-2 rounded-full cursor-pointer hover:bg-indigo-700 shadow-md">
+                    <PencilSquareIcon className="w-4 h-4" />
+                    <input type="file" className="hidden" accept="image/*" onChange={handleAvatarChange} />
+                  </label>
                 )}
               </div>
-              
-              <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-full transition text-sm">
-                Change Photo
-                <input 
-                  type="file" 
-                  accept="image/*"
-                  onChange={(e) => setAvatarFile(e.target.files[0])}
-                  className="hidden"
-                />
-              </label>
-              <p className="text-xs text-gray-400 mt-2">Max size 2MB. JPG/PNG.</p>
+
+              {!isEditing ? (
+                <button 
+                  onClick={() => setIsEditing(true)}
+                  className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold shadow hover:bg-indigo-700 transition flex items-center gap-2"
+                >
+                  <PencilSquareIcon className="w-5 h-5" /> Edit Profile
+                </button>
+              ) : (
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => { setIsEditing(false); setPreview(null); }}
+                    className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition flex items-center gap-2"
+                  >
+                    <XMarkIcon className="w-5 h-5" /> Cancel
+                  </button>
+                  <button 
+                    onClick={handleProfileUpdate}
+                    className="bg-green-600 text-white px-6 py-2 rounded-lg font-bold shadow hover:bg-green-700 transition flex items-center gap-2"
+                  >
+                    <CheckCircleIcon className="w-5 h-5" /> Save
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-gray-700 font-medium mb-2">Full Name</label>
-                <input 
-                  type="text" 
-                  className="w-full p-3 border rounded focus:outline-indigo-500"
-                  value={formData.fullName} 
-                  onChange={(e) => setFormData({...formData, fullName: e.target.value})}
-                />
+            {/* Profile Form */}
+            <form className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
+                  <input 
+                    type="text" 
+                    disabled={!isEditing}
+                    value={formData.fullName}
+                    onChange={(e) => setFormData({...formData, fullName: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500 transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
+                  <input 
+                    type="text" 
+                    disabled
+                    value={formData.email}
+                    className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-gray-700 font-medium mb-2">Email (Read-only)</label>
-                <input 
-                  type="text" 
-                  className="w-full p-3 bg-gray-100 border rounded cursor-not-allowed"
-                  value={formData.email} 
-                  disabled
-                />
-              </div>
-            </div>
 
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">Bio</label>
-              <textarea 
-                className="w-full p-3 border rounded focus:outline-indigo-500"
-                rows="3"
-                value={formData.bio} 
-                onChange={(e) => setFormData({...formData, bio: e.target.value})}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-gray-700 font-medium mb-2">Skills to Teach</label>
-                <input 
-                  type="text" 
-                  className="w-full p-3 border rounded focus:outline-indigo-500"
-                  placeholder="React, Math, Physics"
-                  value={formData.skillsKnown} 
-                  onChange={(e) => setFormData({...formData, skillsKnown: e.target.value})}
+                <label className="block text-sm font-bold text-gray-700 mb-1">Bio</label>
+                <textarea 
+                  rows="3"
+                  disabled={!isEditing}
+                  value={formData.bio}
+                  onChange={(e) => setFormData({...formData, bio: e.target.value})}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500 transition"
+                  placeholder="Tell us about yourself..."
                 />
               </div>
-              <div>
-                <label className="block text-gray-700 font-medium mb-2">Skills to Learn</label>
-                <input 
-                  type="text" 
-                  className="w-full p-3 border rounded focus:outline-indigo-500"
-                  placeholder="Python, History"
-                  value={formData.skillsWanted} 
-                  onChange={(e) => setFormData({...formData, skillsWanted: e.target.value})}
-                />
-              </div>
-            </div>
 
-            <button type="submit" className="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700 transition w-full md:w-auto">
-              Save Profile Changes
-            </button>
-          </form>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Skills You Know (Teach)</label>
+                  <input 
+                    type="text" 
+                    disabled={!isEditing}
+                    value={formData.skillsKnown}
+                    onChange={(e) => setFormData({...formData, skillsKnown: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500 transition"
+                  />
+                  {!isEditing && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {formData.skillsKnown.split(',').map((s, i) => s.trim() && (
+                        <div key={i} className="flex items-center gap-1 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-semibold border border-green-200">
+                          {s.trim()}
+                          <button 
+                            type="button"
+                            onClick={() => setQuizSkill(s.trim())}
+                            className="ml-1 text-xs bg-white text-green-700 border border-green-300 rounded px-1 hover:bg-green-50"
+                            title="Take Quiz"
+                          >
+                            Verify?
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Skills You Want (Learn)</label>
+                  <input 
+                    type="text" 
+                    disabled={!isEditing}
+                    value={formData.skillsWanted}
+                    onChange={(e) => setFormData({...formData, skillsWanted: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500 transition"
+                  />
+                </div>
+              </div>
+
+              {/* Stats Bar */}
+              <div className="pt-4 border-t mt-4 flex justify-between items-center text-center">
+                 <div>
+                    <span className="text-gray-500 text-xs uppercase font-bold tracking-wide">Level</span>
+                    <div className="text-3xl font-black text-indigo-600">{formData.level}</div>
+                 </div>
+                 <div>
+                    <span className="text-gray-500 text-xs uppercase font-bold tracking-wide">XP</span>
+                    <div className="text-3xl font-black text-green-600">{formData.xp}</div>
+                 </div>
+                 <div>
+                    <span className="text-gray-500 text-xs uppercase font-bold tracking-wide">Wallet</span>
+                    <div className="text-3xl font-black text-yellow-600">{formData.credits} 🪙</div>
+                 </div>
+              </div>
+            </form>
+          </div>
         </div>
 
-        {/* --- SECTION 2: CREDIBILITY & BADGES --- */}
-        <div className="bg-white rounded-lg shadow-md p-8">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Credibility & Badges</h2>
-          <div className="flex items-center gap-6">
-            
-            {/* Level Badge */}
-            <div className="flex flex-col items-center">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold border-4 border-white shadow-lg">
-                {Math.floor((formData.xp || 0) / 100) + 1}
-              </div>
-              <span className="mt-2 font-bold text-gray-700">Level</span>
-            </div>
-
-            {/* Dynamic Badges based on Level */}
-            <div className="flex gap-4 flex-wrap">
-              <div className="flex flex-col items-center p-3 bg-blue-50 rounded-lg border border-blue-100 min-w-[80px]" title="Joined the platform early">
-                <span className="text-2xl">🚀</span>
+        {/* ================= BADGES SECTION ================= */}
+        <div className="bg-white rounded-xl shadow-md p-8">
+          <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <AcademicCapIcon className="w-6 h-6 text-indigo-600" />
+            Badges & Credibility
+          </h2>
+          <div className="flex gap-4 flex-wrap">
+              <div className="flex flex-col items-center p-3 bg-blue-50 rounded-lg border border-blue-100 min-w-[100px]">
+                <span className="text-3xl">🚀</span>
                 <span className="text-xs font-bold text-blue-800 mt-1">Early Bird</span>
               </div>
-
-              {(Math.floor((formData.xp || 0) / 100) + 1) >= 2 && (
-                <div className="flex flex-col items-center p-3 bg-yellow-50 rounded-lg border border-yellow-100 min-w-[80px]" title="Reached Level 2">
-                  <span className="text-2xl">⭐</span>
+              {formData.xp >= 200 && (
+                <div className="flex flex-col items-center p-3 bg-yellow-50 rounded-lg border border-yellow-100 min-w-[100px]">
+                  <span className="text-3xl">⭐</span>
                   <span className="text-xs font-bold text-yellow-800 mt-1">Rising Star</span>
                 </div>
               )}
-
-              {(Math.floor((formData.xp || 0) / 100) + 1) >= 5 && (
-                <div className="flex flex-col items-center p-3 bg-purple-50 rounded-lg border border-purple-100 min-w-[80px]" title="Reached Level 5">
-                  <span className="text-2xl">👑</span>
+              {formData.xp >= 1000 && (
+                <div className="flex flex-col items-center p-3 bg-purple-50 rounded-lg border border-purple-100 min-w-[100px]">
+                  <span className="text-3xl">👑</span>
                   <span className="text-xs font-bold text-purple-800 mt-1">Expert</span>
                 </div>
               )}
-            </div>
           </div>
         </div>
 
-        {/* --- SECTION 3: PROJECT PORTFOLIO --- */}
-        <div className="bg-white rounded-lg shadow-md p-8">
+        {/* ================= PROJECT PORTFOLIO ================= */}
+        <div className="bg-white rounded-xl shadow-md p-8">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-800">My Projects</h2>
+            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+              <BriefcaseIcon className="w-6 h-6 text-indigo-600" />
+              My Projects
+            </h2>
             <button 
               onClick={() => setShowProjectForm(!showProjectForm)}
-              className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition"
+              className="bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-lg font-bold hover:bg-indigo-100 transition"
             >
               {showProjectForm ? 'Cancel' : '+ Add Project'}
             </button>
@@ -297,27 +445,29 @@ const Profile = () => {
 
           {/* Add Project Form */}
           {showProjectForm && (
-            <div className="bg-gray-50 p-6 rounded-lg mb-6 border border-indigo-100 shadow-inner">
-              <h3 className="font-bold text-lg mb-4 text-indigo-800">Add New Project</h3>
+            <div className="bg-indigo-50 p-6 rounded-lg mb-6 border border-indigo-100 animate-fadeIn">
+              <h3 className="font-bold text-lg mb-4 text-indigo-800">New Project Details</h3>
               <form onSubmit={handleAddProject} className="space-y-4">
                 <input 
-                  type="text" placeholder="Project Title" className="w-full p-2 border rounded" required
+                  type="text" placeholder="Project Title" className="w-full p-3 border rounded-lg" required
                   value={newProject.title} onChange={(e) => setNewProject({...newProject, title: e.target.value})}
                 />
                 <textarea 
-                  placeholder="Description (What did you build?)" className="w-full p-2 border rounded" rows="2" required
+                  placeholder="Description (What did you build?)" className="w-full p-3 border rounded-lg" rows="2" required
                   value={newProject.description} onChange={(e) => setNewProject({...newProject, description: e.target.value})}
                 />
-                <input 
-                  type="url" placeholder="Project Link (GitHub/Demo)" className="w-full p-2 border rounded"
-                  value={newProject.link} onChange={(e) => setNewProject({...newProject, link: e.target.value})}
-                />
-                <input 
-                  type="text" placeholder="Tags (e.g. React, Node.js)" className="w-full p-2 border rounded"
-                  value={newProject.tags} onChange={(e) => setNewProject({...newProject, tags: e.target.value})}
-                />
-                <button type="submit" className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 transition">
-                  Publish Project (+100 XP)
+                <div className="grid grid-cols-2 gap-4">
+                  <input 
+                    type="url" placeholder="Project Link (GitHub/Demo)" className="w-full p-3 border rounded-lg"
+                    value={newProject.link} onChange={(e) => setNewProject({...newProject, link: e.target.value})}
+                  />
+                  <input 
+                    type="text" placeholder="Tags (React, Node.js)" className="w-full p-3 border rounded-lg"
+                    value={newProject.tags} onChange={(e) => setNewProject({...newProject, tags: e.target.value})}
+                  />
+                </div>
+                <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition shadow-md">
+                  🚀 Publish Project (+100 XP)
                 </button>
               </form>
             </div>
@@ -325,41 +475,37 @@ const Profile = () => {
 
           {/* Projects List */}
           {projects.length === 0 ? (
-            <p className="text-gray-500 italic text-center py-4">No projects added yet. Add projects to unlock Kanban boards!</p>
+            <div className="text-center py-8 text-gray-500 border-2 border-dashed border-gray-200 rounded-xl">
+              <p>No projects added yet.</p>
+              <p className="text-sm mt-1">Add projects to unlock Kanban boards and earn XP!</p>
+            </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
               {projects.map((proj) => (
-                <div key={proj._id} className="border border-gray-200 p-5 rounded-lg hover:shadow-lg transition bg-white">
+                <div key={proj._id} className="border border-gray-100 p-5 rounded-xl hover:shadow-lg transition bg-white group">
                   <div className="flex justify-between items-start">
-                    <h3 className="font-bold text-xl text-gray-800">{proj.title}</h3>
-                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-semibold">Verified</span>
+                    <h3 className="font-bold text-lg text-gray-800 group-hover:text-indigo-600 transition">{proj.title}</h3>
+                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-bold">Verified</span>
                   </div>
-                  <p className="text-gray-600 mt-2">{proj.description}</p>
+                  <p className="text-gray-600 mt-2 text-sm">{proj.description}</p>
                   
                   <div className="mt-3 flex flex-wrap gap-2">
                     {proj.tags.map((tag, i) => (
-                      <span key={i} className="bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs px-2 py-1 rounded">{tag}</span>
+                      <span key={i} className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded font-medium">{tag}</span>
                     ))}
                   </div>
 
-                  {/* Task Board Link Section */}
-                  <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-100">
+                  <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-50">
                     <Link 
                       to={`/project/${proj._id}`} 
-                      className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-indigo-700 flex items-center gap-2"
+                      className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition flex items-center gap-2"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                      </svg>
-                      Open Task Board
+                      <BriefcaseIcon className="w-4 h-4" /> Open Task Board
                     </Link>
-
+                    
                     {proj.link && (
-                      <a href={proj.link} target="_blank" rel="noreferrer" className="text-gray-500 text-sm hover:text-blue-600 hover:underline flex items-center gap-1">
-                        External Link
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
+                      <a href={proj.link} target="_blank" rel="noreferrer" className="text-gray-500 text-sm hover:text-indigo-600 font-medium flex items-center gap-1">
+                        View Demo ↗
                       </a>
                     )}
                   </div>
@@ -368,6 +514,19 @@ const Profile = () => {
             </div>
           )}
         </div>
+
+        {/* --- MODALS --- */}
+        {quizSkill && (
+          <QuizModal 
+            skill={quizSkill} 
+            onClose={() => setQuizSkill(null)}
+            onVerified={() => {
+               setFormData(prev => ({ ...prev, xp: prev.xp + 50 })); 
+               toast.success(`Verified: ${quizSkill}! (+50 XP)`, { icon: '🎓' });
+               setQuizSkill(null);
+            }}
+          />
+        )}
 
       </div>
     </div>

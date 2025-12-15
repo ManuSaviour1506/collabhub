@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { getUserAnalytics } = require('../controllers/analytics.controller');
+const { globalSearch } = require('../controllers/search.controller');
 const { protect } = require('../middleware/auth.middleware');
 
-router.get('/', protect, getUserAnalytics);
+router.get('/', protect, globalSearch);
 
 module.exports = router;

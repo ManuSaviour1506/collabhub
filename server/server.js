@@ -2,8 +2,8 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const connectDB = require('./src/config/db');
-const { Server } = require("socket.io"); // Import Socket.IO
-const http = require('http'); // Import HTTP
+const { Server } = require("socket.io"); 
+const http = require('http'); 
 const path = require('path');
 
 // Load env vars (Explicit path to ensure it finds .env)
@@ -27,7 +27,7 @@ const io = new Server(server, {
 });
 
 // --- 2. MAKE SOCKET.IO ACCESSIBLE TO CONTROLLERS ---
-// This allows files like wallet.controller.js to use req.app.get('io') to send alerts
+// This allows files like wallet.controller.js to use req.app.get('io')
 app.set('io', io);
 
 // --- 3. MIDDLEWARE ---
@@ -51,6 +51,8 @@ app.use('/api/notifications', require('./src/routes/notification.routes'));
 app.use('/api/analytics', require('./src/routes/analytics.routes'));
 app.use('/api/nearby', require('./src/routes/nearby.routes'));
 app.use('/api/sessions', require('./src/routes/session.routes'));
+app.use('/api/search', require('./src/routes/search.routes')); 
+app.use('/api/analytics', require('./src/routes/analytics.routes'));
 
 // Root Route
 app.get('/', (req, res) => {
@@ -70,7 +72,7 @@ io.on("connection", (socket) => {
   // User joins a specific chat room
   socket.on("join chat", (room) => {
     socket.join(room);
-    console.log("User Joined Room: " + room);
+    console.log("User Joined Chat Room: " + room);
   });
 
   // Sending a message
@@ -87,6 +89,26 @@ io.on("connection", (socket) => {
     });
   });
 
+  // --- Whiteboard Events ---
+  
+  // Join a specific whiteboard/classroom room
+  socket.on("join room", (room) => {
+    socket.join(room);
+    console.log(`User joined Whiteboard Room: ${room}`);
+  });
+
+  // Handle Drawing Data
+  socket.on("drawing", (data) => {
+    // Broadcast to everyone in the room EXCEPT the sender
+    socket.to(data.room).emit("drawing", data);
+  });
+  
+  // Clear Board Event
+  socket.on("clear board", (room) => {
+    socket.to(room).emit("clear board");
+  });
+  // ------------------------------
+
   // Handle Notifications (Optional direct event listener)
   socket.on("notification received", (notif) => {
      // Logic is mostly handled in controller, but this listener keeps socket active
@@ -94,7 +116,7 @@ io.on("connection", (socket) => {
 
   socket.off("setup", () => {
     console.log("USER DISCONNECTED");
-    // socket.leave(userData._id); // userData is not in scope here, handled by disconnect
+    // socket.leave(userData._id); 
   });
 });
 // -----------------------
