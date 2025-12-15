@@ -1,0 +1,11 @@
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pkl
+*.pt
+*.h5
+.env
+data/
+models/
+.cache/
