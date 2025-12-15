@@ -111,6 +111,11 @@ exports.updateUserProfile = async (req, res) => {
       // --- Handle ImageKit Upload ---
       if (req.body.avatarBase64) {
         try {
+          // FIX: Delete old avatar from ImageKit before uploading new one
+          if (user.avatarFileId) {
+            await imagekit.deleteFile(user.avatarFileId);
+          }
+
           const uploadResponse = await imagekit.upload({
             file: req.body.avatarBase64, // Base64 string from frontend
             fileName: `avatar_${user._id}_${Date.now()}.jpg`,
@@ -120,6 +125,7 @@ exports.updateUserProfile = async (req, res) => {
           user.avatarFileId = uploadResponse.fileId; // Save ID for future cleanup
         } catch (error) {
           console.error("ImageKit Upload Error:", error);
+          // Return 500 only if the upload itself failed
           return res.status(500).json({ message: "Image upload failed" });
         }
       }
@@ -221,11 +227,15 @@ exports.parseResume = async (req, res) => {
     
     console.log("Spawning Python:", pythonCommand, scriptPath); // DEBUG LOG
 
+    // CRITICAL FIX: Removed resumeText from CLI arguments
     const pythonProcess = spawn(pythonCommand, [ 
       scriptPath, 
-      'parse_resume', 
-      resumeText
+      'parse_resume'
     ]);
+
+    // CRITICAL FIX: Pipe the resume text to stdin
+    pythonProcess.stdin.write(resumeText);
+    pythonProcess.stdin.end();
 
     let dataString = '';
 

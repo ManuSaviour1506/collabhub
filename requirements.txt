@@ -1,4 +1,0 @@
-spacy
-sentence-transformers
-scikit-learn
-numpy

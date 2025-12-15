@@ -128,12 +128,16 @@ exports.generateTasksAI = async (req, res) => {
     const pythonCommand = process.platform === "win32" ? "python" : "python3";
     const scriptPath = path.join(__dirname, '../../../ml_engine.py');
     
+    // CRITICAL FIX: Removed project.description from CLI arguments
     // Spawn Python Process to run the 'plan_project' mode
     const pythonProcess = spawn(pythonCommand, [ 
       scriptPath, 
       'plan_project', 
-      project.description 
     ]);
+    
+    // CRITICAL FIX: Pipe the large data chunk (description) to stdin
+    pythonProcess.stdin.write(project.description);
+    pythonProcess.stdin.end();
 
     let dataString = '';
 

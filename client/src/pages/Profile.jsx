@@ -2,7 +2,8 @@ import { useState, useEffect, useContext, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
 import api from '../services/api';
-import QuizModal from '../components/common/QuizModal';
+// FIX: Import the correct QuizModal component
+import QuizModal from '../components/Quizzing/QuizModal';
 import { toast } from 'react-hot-toast';
 import { 
   PencilSquareIcon, 
@@ -87,7 +88,7 @@ const Profile = () => {
     };
 
     fetchData();
-  }, []);
+  }, [user]);
 
   // --- 2. RESUME PARSER (AI) ---
   const handleResumeUpload = async (e) => {
@@ -220,6 +221,22 @@ const Profile = () => {
       setPreview(URL.createObjectURL(file));
     }
   };
+
+  // --- 6. HANDLE QUIZ FINISH ---
+  const handleQuizFinish = async (correctCount, totalQuestions) => {
+    const isVerified = correctCount >= Math.ceil(totalQuestions / 2); // Simple passing logic
+    
+    if (isVerified) {
+        // You would typically call a backend endpoint here to officially award the badge/XP
+        // Since we are not doing a full backend call, we update locally for visual feedback
+        setFormData(prev => ({ ...prev, xp: prev.xp + 50, level: Math.floor((prev.xp + 50) / 100) + 1 })); 
+        toast.success(`Verified: ${quizSkill}! (+50 XP)`, { icon: '🎓' });
+    } else {
+        toast.error(`Verification Failed. Score: ${correctCount}/${totalQuestions}`, { icon: '😢' });
+    }
+    setQuizSkill(null);
+  };
+
 
   if (loading) return <div className="p-8 text-center font-bold text-indigo-600">Loading profile...</div>;
 
@@ -518,13 +535,11 @@ const Profile = () => {
         {/* --- MODALS --- */}
         {quizSkill && (
           <QuizModal 
-            skill={quizSkill} 
+            // The AI quiz post endpoint returns the raw question data
+            quizData={{ skill: quizSkill }} 
             onClose={() => setQuizSkill(null)}
-            onVerified={() => {
-               setFormData(prev => ({ ...prev, xp: prev.xp + 50 })); 
-               toast.success(`Verified: ${quizSkill}! (+50 XP)`, { icon: '🎓' });
-               setQuizSkill(null);
-            }}
+            // Call the local handler when the quiz completes
+            onFinish={handleQuizFinish} 
           />
         )}
 

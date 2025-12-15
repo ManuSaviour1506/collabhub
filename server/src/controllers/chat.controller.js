@@ -38,7 +38,8 @@ exports.accessChat = async (req, res) => {
       const FullChat = await Chat.findOne({ _id: createdChat._id }).populate("users", "-password");
       res.status(200).send(FullChat);
     } catch (error) {
-      res.status(400).throw(error.message);
+      // FIX: Changed .throw to .send
+      res.status(400).send(error.message);
     }
   }
 };

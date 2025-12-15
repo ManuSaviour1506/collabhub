@@ -1,16 +1,51 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { XMarkIcon, ChevronLeftIcon, ChevronRightIcon, CheckCircleIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
+import api from '../../services/api'; // Import api for fetching quiz data
+import confetti from 'canvas-confetti';
 
-const QuizModal = ({ quizData, onClose, onFinish }) => {
+const QuizModal = ({ quizData: { skill }, onClose, onFinish }) => {
   // State for the quiz flow
+  const [questions, setQuestions] = useState([]);
   const [currentQ, setCurrentQ] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [score, setScore] = useState(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // 1. DEFENSIVE CHECK: Ensure questions is a valid array (resolves TypeError)
-  const questions = Array.isArray(quizData) ? quizData : [];
+  // 1. Fetch Quiz Data on Mount
+  useEffect(() => {
+    const fetchQuiz = async () => {
+      if (!skill) return onClose();
+      setLoading(true);
+      try {
+        const token = JSON.parse(localStorage.getItem('user')).token;
+        // API call to the backend AI/quiz endpoint
+        const { data } = await api.post('/ai/quiz', { skill }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        // Data format: [{ question, options, correctAnswer (index) }]
+        // The ML Engine returns 'a' for correctAnswer
+        const formattedData = data.map(q => ({
+          q: q.question,
+          options: q.options,
+          a: q.correctAnswer,
+          // Add difficulty if you want to display it
+        }));
+
+        setQuestions(formattedData);
+        setLoading(false);
+      } catch (error) {
+        console.error("Quiz Fetch Error:", error);
+        toast.error("AI is busy or questions missing. Try again.");
+        onClose();
+      }
+    };
+    fetchQuiz();
+  }, [skill, onClose]);
+
+
   const totalQuestions = questions.length;
 
   // Handlers
@@ -43,15 +78,21 @@ const QuizModal = ({ quizData, onClose, onFinish }) => {
 
     let correctCount = 0;
     questions.forEach((q, index) => {
-      if (selectedAnswers[index] === q.a) { // q.a is the correct answer index
+      // q.a is the correct answer index (from the ML engine output)
+      if (selectedAnswers[index] === q.a) { 
         correctCount++;
       }
     });
 
     setScore(correctCount);
     setIsSubmitted(true);
+    
+    if (correctCount >= Math.ceil(totalQuestions / 2)) {
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+    }
+    
     if (onFinish) {
-        onFinish(correctCount, totalQuestions);
+        onFinish(correctCount, totalQuestions); // Pass results back to Profile.jsx
     }
     toast.success(`Quiz completed! You scored ${correctCount} out of ${totalQuestions}.`, { icon: '🏆' });
   };
@@ -79,6 +120,15 @@ const QuizModal = ({ quizData, onClose, onFinish }) => {
   };
 
   // --- Main Render ---
+  if (loading) return (
+    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 text-white">
+      <div className="text-center">
+        <div className="animate-spin text-4xl mb-4">🤖</div>
+        <p>Gemini AI is generating a unique {skill} test...</p>
+      </div>
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto transform transition-all">
@@ -96,7 +146,6 @@ const QuizModal = ({ quizData, onClose, onFinish }) => {
         {/* Content */}
         <div className="p-6 min-h-[300px] flex flex-col justify-between">
           
-          {/* CRITICAL FIX: The conditional rendering that solves the TypeError */}
           {totalQuestions > 0 ? (
             <div className="flex-grow space-y-6">
               
@@ -108,8 +157,6 @@ const QuizModal = ({ quizData, onClose, onFinish }) => {
               {/* Options List */}
               <div className="space-y-3">
                 
-                {/* SAFE ACCESS: Use Optional Chaining (?.options?.map) 
-                    This ensures we don't try to access .options on 'undefined' */}
                 {questions[currentQ]?.options?.map((option, index) => (
                     <button
                         key={index}
@@ -129,8 +176,8 @@ const QuizModal = ({ quizData, onClose, onFinish }) => {
           ) : (
             // Fallback for when data is not ready (prevents the crash)
             <div className="text-center py-10 flex-grow flex flex-col items-center justify-center">
-              <p className="text-gray-500 font-medium text-lg">Loading quiz questions...</p>
-              <p className="text-sm text-gray-400 mt-2">Make sure your AI backend is running and accessible.</p>
+              <p className="text-gray-500 font-medium text-lg">No questions found for {skill}.</p>
+              <p className="text-sm text-gray-400 mt-2">Make sure your skill is correctly seeded in the database.</p>
             </div>
           )}
 
