@@ -62,6 +62,8 @@ CollabHub solves this by creating a **skills marketplace**:
 
  python quiz_engine.py React
 
+ python ml_engine.py quiz React
+
  Step 3: Test the Search Demo
 
 Now you can record a perfect demo without typing anything manually:
