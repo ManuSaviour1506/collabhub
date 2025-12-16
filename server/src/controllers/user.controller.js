@@ -1,9 +1,11 @@
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const imagekit = require('../config/imagekit'); 
-const pdfParse = require('pdf-parse'); // <--- RENAMED VARIABLE
-const { spawn } = require('child_process'); 
-const path = require('path');
+const pdfParse = require('pdf-parse');
+const axios = require('axios'); // <-- NEW IMPORT
+const ML_SERVICE_URL = "http://localhost:5008"; // <-- NEW CONST
+// Removed: const { spawn } = require('child_process'); 
+// Removed: const path = require('path');
 
 // ==========================================
 // 1. AUTHENTICATION & PROFILE
@@ -201,10 +203,10 @@ exports.getLeaderboard = async (req, res) => {
 };
 
 // ==========================================
-// 3. AI FEATURES (Resume Parser - LOCAL ML)
+// 3. AI FEATURES (Resume Parser - FLASK API)
 // ==========================================
 
-// @desc    Parse Resume PDF (Uses Python NLP)
+// @desc    Parse Resume PDF (Uses Python NLP via Flask API)
 // @route   POST /api/users/parse-resume
 exports.parseResume = async (req, res) => {
   if (!req.file) {
@@ -212,58 +214,33 @@ exports.parseResume = async (req, res) => {
   }
 
   try {
-    console.log("Processing resume..."); // DEBUG LOG
-    
-    // 1. Extract Text from PDF (Using the renamed variable)
+    // 1. Extract Text from PDF buffer
     const pdfData = await pdfParse(req.file.buffer); 
-    
-    // Remove excessive whitespace/newlines
     const resumeText = pdfData.text.replace(/\s+/g, ' ').substring(0, 5000);
-    console.log("Text extracted length:", resumeText.length); // DEBUG LOG
 
-    // 2. Spawn Python Process
-    const pythonCommand = process.platform === "win32" ? "python" : "python3";
-    const scriptPath = path.join(__dirname, '../../../ml_engine.py');
+    if (!resumeText.trim()) {
+        return res.status(400).json({ message: "Unable to extract readable text from PDF." });
+    }
     
-    console.log("Spawning Python:", pythonCommand, scriptPath); // DEBUG LOG
-
-    // CRITICAL FIX: Removed resumeText from CLI arguments
-    const pythonProcess = spawn(pythonCommand, [ 
-      scriptPath, 
-      'parse_resume'
-    ]);
-
-    // CRITICAL FIX: Pipe the resume text to stdin
-    pythonProcess.stdin.write(resumeText);
-    pythonProcess.stdin.end();
-
-    let dataString = '';
-
-    pythonProcess.stdout.on('data', (data) => {
-      dataString += data.toString();
+    // 2. FORWARD TEXT TO PYTHON FLASK SERVICE
+    // Node.js calls the new Flask route /parse-resume-text with the extracted text.
+    const pythonRes = await axios.post(`${ML_SERVICE_URL}/parse-resume-text`, { 
+        text: resumeText
     });
+    
+    const parsedData = pythonRes.data;
 
-    pythonProcess.stderr.on('data', (data) => {
-      console.error(`Python Logic Error: ${data}`);
-    });
-
-    pythonProcess.on('close', (code) => {
-      try {
-        if (code !== 0) throw new Error("Python script exited with error code: " + code);
-
-        const parsedData = JSON.parse(dataString);
-        if (parsedData.error) return res.status(500).json({ message: parsedData.error });
-
-        res.json(parsedData);
-      } catch (e) {
-        console.error("Parsing Failed:", e);
-        console.error("Python Output was:", dataString);
-        res.status(500).json({ message: "Failed to process resume with AI" });
-      }
+    // The Python service returns: { fullName, skills, bio }
+    // We map 'skills' to 'skillsKnown' for the frontend form.
+    res.json({
+        fullName: parsedData.fullName,
+        skillsKnown: parsedData.skills,
+        bio: parsedData.bio
     });
 
   } catch (error) {
-    console.error("Resume Parse Error:", error);
-    res.status(500).json({ message: "Failed to parse resume: " + error.message });
+    // Detailed error logging for debugging Flask connectivity issues
+    console.error("Resume Parse Error:", error.response?.data?.error || error.message);
+    res.status(500).json({ message: "Failed to parse resume: " + (error.response?.data?.error || error.message) });
   }
 };

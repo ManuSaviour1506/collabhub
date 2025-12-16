@@ -1,10 +1,10 @@
-import { useEffect } from 'react'; // Import useEffect
+import { useEffect } from 'react'; 
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster, toast } from 'react-hot-toast'; // Import toast
+import { Toaster, toast } from 'react-hot-toast'; 
 import { AuthProvider } from './context/AuthContext';
-import io from 'socket.io-client'; // Import socket
+import io from 'socket.io-client'; 
 
-// Import Pages (Keep existing imports)
+// Import Pages
 import Home from './pages/Home';
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
@@ -14,6 +14,7 @@ import Chat from './pages/Chat';
 import Wallet from './pages/Wallet';
 import LearnSkill from './pages/LearnSkill';
 import Leaderboard from './pages/Leaderboard';
+import Sessions from './pages/Sessions'; // <-- NEW IMPORT
 
 import Nearby from './pages/Nearby';
 import Classroom from './pages/Classroom';
@@ -25,13 +26,13 @@ const ENDPOINT = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace('/api', '') 
   : "http://localhost:5001";
 
-// Private Route Wrapper (Keep as is)
+// Private Route Wrapper 
 const PrivateRoute = ({ children }) => {
   const user = JSON.parse(localStorage.getItem('user'));
   return user ? children : <Navigate to="/login" />;
 };
 
-// --- NEW COMPONENT: Global Socket Listener ---
+// --- Global Socket Listener ---
 const SocketListener = () => {
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user'));
@@ -51,7 +52,7 @@ const SocketListener = () => {
     });
 
     // Listener 2: Generic Notifications (Session requests, Wallet tips)
-    // You need to emit this event from backend when these actions happen
+    // The backend session controller emits 'notification received'
     socket.on("notification received", (notif) => {
       toast(notif.message || "New Notification", {
         icon: '🔔',
@@ -64,7 +65,7 @@ const SocketListener = () => {
     };
   }, []);
 
-  return null; // This component doesn't render anything visually
+  return null; 
 };
 
 function App() {
@@ -89,6 +90,7 @@ function App() {
           <Route path="/wallet" element={<PrivateRoute><Wallet /></PrivateRoute>} />
           <Route path="/learn" element={<PrivateRoute><LearnSkill /></PrivateRoute>} />
           <Route path="/leaderboard" element={<PrivateRoute><Leaderboard /></PrivateRoute>} />
+          <Route path="/sessions" element={<PrivateRoute><Sessions /></PrivateRoute>} /> {/* <-- NEW ROUTE ADDED */}
           
           {/* Feature Routes */}
           <Route path="/project/:id" element={<PrivateRoute><ProjectBoard /></PrivateRoute>} />

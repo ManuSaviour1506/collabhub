@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { XMarkIcon, ChevronLeftIcon, ChevronRightIcon, CheckCircleIcon } from '@heroicons/react/24/solid';
+import { XMarkIcon, ChevronLeftIcon, ChevronRightIcon, CheckCircleIcon, XMarkIcon as CrossIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
 import api from '../../services/api'; // Import api for fetching quiz data
 import confetti from 'canvas-confetti';
@@ -20,22 +20,17 @@ const QuizModal = ({ quizData: { skill }, onClose, onFinish }) => {
       setLoading(true);
       try {
         const token = JSON.parse(localStorage.getItem('user')).token;
-        // API call to the backend AI/quiz endpoint
+        
+        // The API returns data with keys: q (question), o (options), a (correctAnswer index)
         const { data } = await api.post('/ai/quiz', { skill }, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
-        // Data format: [{ question, options, correctAnswer (index) }]
-        // The ML Engine returns 'a' for correctAnswer
-        const formattedData = data.map(q => ({
-          q: q.question,
-          options: q.options,
-          a: q.correctAnswer,
-          // Add difficulty if you want to display it
-        }));
-
-        setQuestions(formattedData);
+        // CRITICAL FIX: The Node.js controller already projects keys to q, o, a.
+        // We use the data directly, which is already in the correct format.
+        setQuestions(data);
         setLoading(false);
+
       } catch (error) {
         console.error("Quiz Fetch Error:", error);
         toast.error("AI is busy or questions missing. Try again.");
@@ -47,6 +42,8 @@ const QuizModal = ({ quizData: { skill }, onClose, onFinish }) => {
 
 
   const totalQuestions = questions.length;
+  // CRITICAL FIX: Define currentQuestion safely outside the JSX.
+  const currentQuestion = questions[currentQ]; // Will be undefined if questions array is empty
 
   // Handlers
   const handleAnswer = (optionIndex) => {
@@ -78,7 +75,7 @@ const QuizModal = ({ quizData: { skill }, onClose, onFinish }) => {
 
     let correctCount = 0;
     questions.forEach((q, index) => {
-      // q.a is the correct answer index (from the ML engine output)
+      // q.a is the correct answer index
       if (selectedAnswers[index] === q.a) { 
         correctCount++;
       }
@@ -124,7 +121,7 @@ const QuizModal = ({ quizData: { skill }, onClose, onFinish }) => {
     <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 text-white">
       <div className="text-center">
         <div className="animate-spin text-4xl mb-4">🤖</div>
-        <p>Gemini AI is generating a unique {skill} test...</p>
+        <p>Generating a unique {skill} test...</p>
       </div>
     </div>
   );
@@ -146,28 +143,29 @@ const QuizModal = ({ quizData: { skill }, onClose, onFinish }) => {
         {/* Content */}
         <div className="p-6 min-h-[300px] flex flex-col justify-between">
           
-          {totalQuestions > 0 ? (
+          {totalQuestions > 0 && currentQuestion ? (
             <div className="flex-grow space-y-6">
               
-              {/* Question Title */}
+              {/* Question Title - USES q */}
               <p className="font-semibold text-xl text-gray-900">
-                {questions[currentQ].q}
+                {currentQuestion.q}
               </p>
               
-              {/* Options List */}
+              {/* Options List - USES o */}
               <div className="space-y-3">
                 
-                {questions[currentQ]?.options?.map((option, index) => (
+                {/* CRITICAL FIX: Use currentQuestion.o?.map to safely access options array */}
+                {currentQuestion.o?.map((option, index) => (
                     <button
                         key={index}
                         onClick={() => handleAnswer(index)}
                         disabled={isSubmitted}
                         className={`w-full text-left p-4 border rounded-xl transition flex justify-between items-center 
-                            ${getOptionClass(index, questions[currentQ].a)}`}
+                            ${getOptionClass(index, currentQuestion.a)}`}
                     >
                         <span>{option}</span>
-                        {isSubmitted && index === questions[currentQ].a && <CheckCircleIcon className="w-5 h-5 text-green-600" />}
-                        {isSubmitted && isOptionSelected(index) && index !== questions[currentQ].a && <XMarkIcon className="w-5 h-5 text-red-600" />}
+                        {isSubmitted && index === currentQuestion.a && <CheckCircleIcon className="w-5 h-5 text-green-600" />}
+                        {isSubmitted && isOptionSelected(index) && index !== currentQuestion.a && <CrossIcon className="w-5 h-5 text-red-600" />}
                     </button>
                 ))}
               </div>

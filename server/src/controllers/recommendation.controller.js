@@ -1,4 +1,10 @@
 const User = require('../models/User');
+const axios = require('axios'); // <-- NECESSARY IMPORT
+const ML_SERVICE_URL = "http://localhost:5008"; // <-- NECESSARY CONST
+
+// ==========================================
+// 1. SKILLS-BASED MATCHING (DEFAULT)
+// ==========================================
 
 // @desc    Get user recommendations based on skills
 // @route   GET /api/recommendations
@@ -45,4 +51,55 @@ exports.getRecommendations = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+};
+
+// ==========================================
+// 2. AI MATCHING (PROMPT-BASED)
+// ==========================================
+
+// @desc    Get AI-powered recommendations based on user prompt
+// @route   POST /api/recommendations/ai
+exports.getRecommendationsAI = async (req, res) => {
+    const { prompt } = req.body;
+    
+    if (!prompt) return res.status(400).json({ message: 'Prompt is required' });
+
+    try {
+        // 1. Call Python Flask ML service
+        // Sends the prompt to the /ai-match endpoint
+        const pythonRes = await axios.post(`${ML_SERVICE_URL}/ai-match`, {
+            prompt: prompt // Key must be 'prompt' to match the Flask route logic
+        });
+        
+        // Flask returns { matchedUserIds: [], category: "..." }
+        const { matchedUserIds, category } = pythonRes.data;
+
+        if (!matchedUserIds || matchedUserIds.length === 0) {
+            // Return 200 with empty array if AI finds no matches
+            return res.json([]); 
+        }
+
+        // 2. Fetch full user documents from MongoDB using the IDs returned by the AI
+        const aiMatches = await User.find({ 
+            _id: { $in: matchedUserIds }
+        }).select('-password');
+        
+        // 3. Simple scoring/ranking (AI Match users get a base score of 100)
+        const scoredMatches = aiMatches.map(user => ({
+            ...user.toObject(),
+            matchScore: 100, // Highest score for AI matches
+            matchingReason: `AI Recommended (Category: ${category})`
+        }));
+        
+        res.json(scoredMatches);
+
+    } catch (error) {
+        // Log detailed error from axios response if available
+        console.error("AI Match Error:", error.response?.data?.error || error.message);
+        
+        // Return 500 error message based on the issue
+        res.status(500).json({ 
+            message: "AI Match failed. Check the Node.js server log for the detailed Python error or connection failure." 
+        });
+    }
 };

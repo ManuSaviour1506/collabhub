@@ -70,6 +70,7 @@ const Home = () => {
                  <Link to="/chat" className="flex flex-col items-center justify-center p-4 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition"><span className="font-bold">Chat</span></Link>
                  <Link to="/nearby" className="flex flex-col items-center justify-center p-4 bg-teal-50 text-teal-700 rounded-lg hover:bg-teal-100 transition"><span className="font-bold">📍 Nearby</span></Link>
                  <Link to="/classroom/demo-123" className="flex flex-col items-center justify-center p-4 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition"><span className="font-bold">🎨 Whiteboard</span></Link>
+                 <Link to="/sessions" className="flex flex-col items-center justify-center p-4 bg-fuchsia-50 text-fuchsia-700 rounded-lg hover:bg-fuchsia-100 transition"><span className="font-bold">📅 Sessions</span></Link> {/* <-- SESSIONS LINK ADDED */}
                  <Link to="/search" className="flex flex-col items-center justify-center p-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"><span className="font-bold">🔍 Search</span></Link>
                  <Link to="/wallet" className="flex flex-col items-center justify-center p-4 bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 transition"><span className="font-bold">Wallet</span></Link>
                  <Link to="/learn" className="flex flex-col items-center justify-center p-4 bg-pink-50 text-pink-700 rounded-lg hover:bg-pink-100 transition"><span className="font-bold">AI Tutor</span></Link>

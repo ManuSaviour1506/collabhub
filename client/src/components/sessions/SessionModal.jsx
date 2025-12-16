@@ -13,6 +13,8 @@ const SessionModal = ({ receiverId, receiverName, onClose }) => {
     setLoading(true);
     try {
       const token = JSON.parse(localStorage.getItem('user')).token;
+      
+      // Call the session request endpoint (POST /api/sessions)
       await api.post('/sessions', 
         { receiverId, topic, startTime, duration },
         { headers: { Authorization: `Bearer ${token}` } }

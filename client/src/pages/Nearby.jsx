@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
-// We will create this modal in the next step
 import SessionModal from '../components/sessions/SessionModal';
+import toast from 'react-hot-toast';
 
 const Nearby = () => {
   const [mentors, setMentors] = useState([]);
@@ -11,12 +11,13 @@ const Nearby = () => {
 
   // 1. Get User Location
   const shareLocation = () => {
-    if (!navigator.geolocation) return alert('Geolocation not supported');
+    if (!navigator.geolocation) return toast.error('Geolocation not supported');
     
     setLoading(true);
     navigator.geolocation.getCurrentPosition(async (position) => {
       try {
         const token = JSON.parse(localStorage.getItem('user')).token;
+        // API call to update user's location coordinates
         await api.put('/nearby/location', {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude
@@ -26,7 +27,7 @@ const Nearby = () => {
         fetchNearbyMentors();
       } catch (error) {
         console.error(error);
-        alert("Failed to update location");
+        toast.error("Failed to update location");
       } finally {
         setLoading(false);
       }
@@ -44,6 +45,14 @@ const Nearby = () => {
       setMentors(data);
     } catch (error) { console.error(error); }
   };
+
+  // Add useEffect to fetch mentors when location is shared
+  useEffect(() => {
+    if (locationShared) {
+        fetchNearbyMentors();
+    }
+  }, [locationShared]);
+
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -109,7 +118,7 @@ const Nearby = () => {
 
         {/* Modal */}
         {selectedMentor && (
-          <SessionModal 
+          <SessionModal
             receiverId={selectedMentor._id}
             receiverName={selectedMentor.fullName}
             onClose={() => setSelectedMentor(null)}

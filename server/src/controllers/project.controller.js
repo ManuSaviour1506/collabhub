@@ -1,7 +1,7 @@
 const Project = require('../models/Project');
 const { addXP } = require('../services/gamification');
-const { spawn } = require('child_process');
-const path = require('path');
+const axios = require('axios'); // <-- NEW IMPORT: Used for API calls to Python service
+const ML_SERVICE_URL = "http://localhost:5008"; // <-- NEW CONST: Address of your Python Flask app
 
 // ==========================================
 // 1. PROJECT CREATION & FETCHING
@@ -115,7 +115,7 @@ exports.updateTaskStatus = async (req, res) => {
 };
 
 // ==========================================
-// 3. AI GENERATION (Python ML Engine)
+// 3. AI GENERATION (Python Flask API)
 // ==========================================
 
 // @desc    AI: Generate Tasks based on project description
@@ -125,58 +125,31 @@ exports.generateTasksAI = async (req, res) => {
     const project = await Project.findById(req.params.id);
     if (!project) return res.status(404).json({ message: 'Project not found' });
     
-    const pythonCommand = process.platform === "win32" ? "python" : "python3";
-    const scriptPath = path.join(__dirname, '../../../ml_engine.py');
+    // 1. CALL PYTHON FLASK SERVICE
+    const pythonRes = await axios.post(`${ML_SERVICE_URL}/ai-plan`, {
+        task: project.description // Send project description as the task
+    });
     
-    // CRITICAL FIX: Removed project.description from CLI arguments
-    // Spawn Python Process to run the 'plan_project' mode
-    const pythonProcess = spawn(pythonCommand, [ 
-      scriptPath, 
-      'plan_project', 
-    ]);
-    
-    // CRITICAL FIX: Pipe the large data chunk (description) to stdin
-    pythonProcess.stdin.write(project.description);
-    pythonProcess.stdin.end();
+    // 2. Extract Steps from Python Response 
+    const generatedSteps = pythonRes.data.stepByStepGuide || [];
 
-    let dataString = '';
-
-    pythonProcess.stdout.on('data', (data) => {
-      dataString += data.toString();
+    // Add tasks to the project document
+    let count = 0;
+    generatedSteps.forEach(t => {
+        // Prevent duplicates by checking existing task titles
+        if (!project.tasks.some(pt => pt.title === t)) {
+            project.tasks.push({ title: t, status: 'todo', assignedTo: req.user.id });
+            count++;
+        }
     });
-
-    pythonProcess.stderr.on('data', (data) => {
-      console.error(`Python Logic Error: ${data}`);
-    });
-
-    pythonProcess.on('close', async (code) => {
-      try {
-        if (code !== 0) throw new Error("Python script exited with error code: " + code);
-
-        const generatedTasks = JSON.parse(dataString);
         
-        // Add tasks to the project document
-        let count = 0;
-        generatedTasks.forEach(t => {
-           // Prevent duplicates by checking existing task titles
-           if (!project.tasks.some(pt => pt.title === t)) {
-             project.tasks.push({ title: t, status: 'todo', assignedTo: req.user.id });
-             count++;
-           }
-        });
-        
-        const updatedProject = await project.save();
-        // Send back the whole updated project to the frontend
-        res.json({ project: updatedProject, message: `Generated ${count} tasks` });
-
-      } catch (e) {
-        console.error("AI Plan Error (Node Side):", e);
-        console.error("Raw Python Output:", dataString);
-        res.status(500).json({ message: "Failed to generate plan. Check Python output for errors." });
-      }
-    });
+    const updatedProject = await project.save();
+    // Send back the whole updated project to the frontend
+    res.json({ project: updatedProject, message: `Generated ${count} tasks` });
 
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    // Log detailed error from axios response if available
+    console.error("AI Plan Error (Flask Call):", err.response?.data?.error || err.message);
+    res.status(500).json({ message: "Failed to generate plan. Check Python Flask service." });
   }
 };

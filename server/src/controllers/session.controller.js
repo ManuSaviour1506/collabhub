@@ -1,5 +1,7 @@
 const Session = require('../models/Session');
 const Notification = require('../models/Notification'); 
+const { addXP } = require('../services/gamification'); // For rewarding XP
+const User = require('../models/User'); // To fetch user details for notifications
 
 // @desc    Request a Session & Notify User
 // @route   POST /api/sessions
@@ -22,11 +24,10 @@ exports.requestSession = async (req, res) => {
       sender: req.user.id,
       type: 'session_request',
       message: `${req.user.fullName} wants to book a session: ${topic}`,
-      link: `/chat` // Redirect to chat when clicked
+      link: `/chat` 
     });
 
     // 3. Emit Real-Time Socket Event
-    // This allows the receiver to see a popup toast immediately
     const io = req.app.get('io');
     
     if (io) {
@@ -36,9 +37,6 @@ exports.requestSession = async (req, res) => {
         type: 'session_request',
         senderName: req.user.fullName
       });
-      console.log(`Socket notification sent to ${receiverId}`);
-    } else {
-      console.error("Socket.io instance not found on req.app");
     }
 
     res.status(201).json(session);
@@ -64,4 +62,83 @@ exports.getMySessions = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+};
+
+
+// @desc    Update Session Status (Accept, Cancel, Complete)
+// @route   PUT /api/sessions/:id/status
+exports.updateSessionStatus = async (req, res) => {
+    const { newStatus } = req.body;
+    const sessionId = req.params.id;
+    const currentUserId = req.user.id; // User making the status change
+
+    try {
+        const session = await Session.findById(sessionId)
+            .populate('sender', 'fullName')
+            .populate('receiver', 'fullName');
+
+        if (!session) return res.status(404).json({ message: "Session not found" });
+
+        // Ensure only sender/receiver can modify the session
+        const isParticipant = session.sender._id.equals(currentUserId) || session.receiver._id.equals(currentUserId);
+        if (!isParticipant) {
+            return res.status(403).json({ message: "Not authorized to modify this session" });
+        }
+
+        const io = req.app.get('io');
+        let notificationMessage = '';
+        const otherUserId = session.sender._id.equals(currentUserId) ? session.receiver._id : session.sender._id;
+
+        // --- CORE STATUS LOGIC ---
+
+        if (newStatus === 'accepted' && session.status === 'pending') {
+            session.status = 'accepted';
+            notificationMessage = `${req.user.fullName} accepted your session request: ${session.topic}`;
+            await addXP(currentUserId, 10); // Mentor gets small XP for accepting
+        
+        } else if (newStatus === 'cancelled') {
+            session.status = 'cancelled';
+            notificationMessage = `${req.user.fullName} cancelled the session: ${session.topic}`;
+        
+        } else if (newStatus === 'completed' && session.status === 'accepted') {
+            session.status = 'completed';
+            
+            // 1. XP REWARD: Mentor (receiver) gets more XP than student (sender)
+            await addXP(session.receiver._id, 50); // Mentor reward
+            await addXP(session.sender._id, 10); // Student reward (for being active)
+            
+            // 2. NOTIFICATION & MESSAGE
+            notificationMessage = `Session completed! You earned XP for teaching ${session.topic}.`;
+
+            // NOTE: In a real app, wallet transfers (like refunding escrow or final payment) 
+            // would also be triggered here.
+        } else {
+             return res.status(400).json({ message: "Invalid status transition." });
+        }
+
+        // Save new status
+        const updatedSession = await session.save();
+
+        // Send notification to the other participant
+        if (io && notificationMessage) {
+             const newNotif = await Notification.create({
+                recipient: otherUserId,
+                sender: currentUserId,
+                type: 'session_update',
+                message: notificationMessage,
+                link: `/sessions` 
+            });
+            io.in(otherUserId.toString()).emit("notification received", {
+                _id: newNotif._id,
+                message: notificationMessage,
+                type: 'session_update',
+            });
+        }
+
+
+        res.json(updatedSession);
+    } catch (error) {
+        console.error("Session Update Error:", error);
+        res.status(500).json({ message: error.message });
+    }
 };

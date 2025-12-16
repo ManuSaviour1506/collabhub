@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../services/api';
+import { toast } from 'react-hot-toast'; // Used for notifications
 
 const LearnSkill = () => {
   const [skill, setSkill] = useState('');
@@ -13,35 +14,66 @@ const LearnSkill = () => {
     e.preventDefault();
     if (!skill) return;
     setLoading(true);
+    setRoadmap(null); // Clear previous roadmap
+    setChatHistory([]); // Clear chat for new skill context
+
+    const toastId = toast.loading(`Generating roadmap for ${skill}...`);
+
     try {
       const token = JSON.parse(localStorage.getItem('user')).token;
+      // Call Node.js controller which uses Gemini API
       const { data } = await api.post('/ai/roadmap', { skill }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      
       setRoadmap(data);
-      setLoading(false);
+      toast.success("Roadmap generated!", { id: toastId });
+      
     } catch (error) {
-      console.error(error);
+      console.error("Roadmap Error:", error);
+      toast.error(error.response?.data?.message || "Failed to generate roadmap. Try a simpler skill.", { id: toastId });
+      
+      // Fallback data structure from the Node controller error handling
+      setRoadmap({
+        title: `Roadmap for ${skill} (Offline Mode)`,
+        steps: [
+            { topic: "Basics", description: "Learn the core syntax and concepts." },
+            { topic: "Intermediate Projects", description: "Build 3 small projects to practice." }
+        ]
+      });
+    } finally {
       setLoading(false);
     }
   };
 
-  // Chat with AI
+  // Chat with AI Tutor
   const handleChat = async () => {
     if (!chatMessage) return;
-    const userMsg = { role: 'user', content: chatMessage };
-    setChatHistory([...chatHistory, userMsg]);
+
+    const messageToSend = chatMessage;
+    const userMsg = { role: 'user', content: messageToSend };
+    
+    // Optimistic update: Add user message immediately
+    setChatHistory(prev => [...prev, userMsg]);
     setChatMessage('');
 
     try {
       const token = JSON.parse(localStorage.getItem('user')).token;
+      // Call Node.js controller which uses Gemini API
       const { data } = await api.post('/ai/chat', 
-        { message: chatMessage, context: skill }, 
+        { message: messageToSend, context: skill || 'general skills' }, // Use current skill as context
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
+      // Add AI reply to history
       setChatHistory(prev => [...prev, { role: 'ai', content: data.reply }]);
+      
     } catch (error) {
-      console.error(error);
+      console.error("Chat Error:", error);
+      setChatHistory(prev => [...prev, { 
+        role: 'ai', 
+        content: "I am having trouble connecting to the AI Tutor right now. Please try again later!" 
+      }]);
     }
   };
 
@@ -53,22 +85,23 @@ const LearnSkill = () => {
         <h2 className="text-2xl font-bold mb-4 text-indigo-700">AI Learning Roadmap</h2>
         <div className="bg-white p-6 rounded-lg shadow-md">
           <p className="mb-4 text-gray-600">Enter a skill you want to master (e.g., "Python", "Digital Marketing").</p>
-          <div className="flex gap-2 mb-6">
+          <form onSubmit={handleGetRoadmap} className="flex gap-2 mb-6">
             <input 
               type="text" 
               className="flex-1 border p-2 rounded"
               placeholder="Enter skill..."
               value={skill}
               onChange={(e) => setSkill(e.target.value)}
+              required
             />
             <button 
-              onClick={handleGetRoadmap} 
+              type="submit" 
               disabled={loading}
               className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 disabled:bg-gray-400"
             >
               {loading ? 'Generating...' : 'Generate'}
             </button>
-          </div>
+          </form>
 
           {roadmap && (
             <div className="border-l-4 border-indigo-500 pl-4 space-y-4">
@@ -88,28 +121,43 @@ const LearnSkill = () => {
       <div className="flex flex-col h-[600px] bg-white rounded-lg shadow-md overflow-hidden">
         <div className="bg-gray-100 p-4 border-b">
           <h2 className="text-xl font-bold text-gray-800">Chat with AI Tutor</h2>
+          <p className="text-sm text-gray-500">Context: {skill || 'General'}</p>
         </div>
         
+        {/* Chat History */}
         <div className="flex-1 p-4 overflow-y-auto space-y-3">
           {chatHistory.length === 0 && <p className="text-gray-400 text-center mt-10">Ask me anything about your learning journey!</p>}
           {chatHistory.map((msg, i) => (
-            <div key={i} className={`p-3 rounded-lg text-sm max-w-[80%] ${msg.role === 'user' ? 'bg-blue-100 self-end ml-auto' : 'bg-gray-200 self-start'}`}>
+            <div 
+                key={i} 
+                className={`p-3 rounded-2xl text-sm max-w-[80%] shadow-md 
+                    ${msg.role === 'user' 
+                        ? 'bg-blue-600 text-white ml-auto rounded-br-none' 
+                        : 'bg-gray-200 text-gray-800 rounded-bl-none'}`
+                }
+            >
               <strong>{msg.role === 'user' ? 'You' : 'AI'}:</strong> {msg.content}
             </div>
           ))}
+          {/* Scroll Anchor, optional but good practice */}
+          <div style={{ float:"left", clear: "both" }} /> 
         </div>
 
+        {/* Input Area */}
         <div className="p-4 border-t flex gap-2">
           <input 
             type="text" 
-            className="flex-1 border p-2 rounded"
+            className="flex-1 border p-2 rounded-full px-4 focus:ring-2 focus:ring-green-500 outline-none"
             placeholder="Ask a question..."
             value={chatMessage}
             onChange={(e) => setChatMessage(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleChat(); }}
+            disabled={loading}
           />
           <button 
             onClick={handleChat}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+            disabled={loading || !chatMessage.trim()}
+            className="bg-green-600 text-white px-4 py-2 rounded-full hover:bg-green-700 disabled:bg-gray-400"
           >
             Send
           </button>

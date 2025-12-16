@@ -68,10 +68,14 @@ const Recommendations = () => {
     setIsSearching(true);
     try {
       const token = JSON.parse(localStorage.getItem('user')).token;
-      const { data } = await api.post('/ai/match', 
-        { query },
+      
+      // FIX: Use the correct API route defined in recommendation.routes.js 
+      // which is POST /api/recommendations/ai
+      const { data } = await api.post('/recommendations/ai', // <-- CORRECTED PATH
+        { prompt: query }, // Send query as 'prompt' to match the Node.js controller
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
       setMatches(data);
       if (data.length > 0) {
         toast.success(`Found ${data.length} AI matches!`);
@@ -79,7 +83,9 @@ const Recommendations = () => {
         toast('No strong matches found. Try a different description.', { icon: '🤔' });
       }
     } catch (error) {
-      toast.error("AI Match failed. Is the Python engine running?");
+      // NOTE: The previous 500 error was likely due to the Node server not having 
+      // the correct route or crashing on the backend axios call.
+      toast.error("AI Match failed. Check the Node.js server log for Python errors.");
       console.error(error);
     } finally {
       setIsSearching(false);
